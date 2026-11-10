@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f5f2">
+  <title>Room Area Lens — Estimate floor space from a photo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f3f5f2;
+      color: #23332c;
+      font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(ellipse at 2% 0%, #dcece3 0, transparent 38%), #f3f5f2; }
+    button, input, select { font: inherit; }
+    button, label[for="photo-file"] { cursor: pointer; }
+    .page { width: min(1200px, 100%); margin: 0 auto; padding: 26px 20px 55px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    .brand { display:flex; align-items:center; gap:10px; font-size:.84rem; font-weight:850; letter-spacing:.09em; text-transform:uppercase; }
+    .brand-mark { display:grid; place-items:center; width:36px; height:36px; border-radius:12px; background:#d7e9dd; font-size:1.15rem; }
+    .actions { display:flex; gap:8px; }
+    .button { min-height:39px; padding:0 13px; border:1px solid #d5ded6; border-radius:9px; background:#fff; color:#34443a; font-size:.8rem; font-weight:750; }
+    .button:hover { background:#edf3ed; }
+    .button.primary { border-color:#245b41; background:#245b41; color:#fff; }
+    h1 { margin:31px 0 8px; font-size:clamp(2.2rem,6vw,4.25rem); letter-spacing:-.065em; line-height:1; }
+    h1 span { color:#39825a; }
+    .intro { max-width:750px; margin:0; color:#6b796e; font-size:.95rem; line-height:1.65; }
+    .layout { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(290px,.7fr); gap:15px; margin-top:23px; align-items:start; }
+    .card { min-width:0; padding:18px; border:1px solid #e0e5df; border-radius:15px; background:#fff; box-shadow:0 10px 32px #263b280b; }
+    .card + .card { margin-top:14px; }
+    .head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:13px; }
+    h2 { margin:0; font-size:.98rem; letter-spacing:-.02em; }
+    .muted { margin:5px 0 0; color:#758176; font-size:.75rem; line-height:1.5; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+    #photo-file { display:none; }
+    .stage { display:grid; place-items:center; min-height:340px; overflow:hidden; border:1px dashed #cbd6cc; border-radius:12px; background:linear-gradient(145deg,#f1f5ef,#f8f8f3); }
+    #photo-canvas { display:block; max-width:100%; max-height:65vh; width:auto; height:auto; touch-action:none; cursor:crosshair; }
+    .placeholder { padding:30px 22px; color:#718074; text-align:center; font-size:.82rem; line-height:1.6; }
+    .placeholder strong { display:block; margin-bottom:5px; color:#35483b; font-size:.95rem; }
+    .controls { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-top:12px; }
+    .field { display:grid; gap:5px; }
+    .field label { color:#68766b; font-size:.7rem; font-weight:750; }
+    .field input, .field select { width:100%; min-height:39px; padding:0 9px; border:1px solid #dce2dc; border-radius:8px; background:white; color:#27372c; }
+    .modebar { display:flex; gap:7px; flex-wrap:wrap; margin-top:12px; }
+    .modebar button { padding:7px 10px; border:1px solid #dce2dc; border-radius:8px; background:#fff; color:#68766b; font-size:.72rem; font-weight:700; }
+    .modebar button.active { border-color:#47845e; background:#e9f3ea; color:#245b41; }
+    .status { min-height:1.35em; margin:10px 0 0; color:#637367; font-size:.76rem; line-height:1.45; }
+    .status.error { color:#ad4038; }
+    .result { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin-top:12px; }
+    .result-item { padding:11px; border-radius:10px; background:#eff5ef; }
+    .result-item strong { display:block; font-size:1.18rem; font-variant-numeric:tabular-nums; }
+    .result-item span { display:block; margin-top:3px; color:#718071; font-size:.68rem; }
+    .steps { display:grid; gap:12px; margin:0; padding:0; list-style:none; counter-reset:step; }
+    .steps li { position:relative; padding-left:34px; color:#637166; font-size:.78rem; line-height:1.55; counter-increment:step; }
+    .steps li::before { content:counter(step); position:absolute; left:0; top:0; display:grid; place-items:center; width:23px; height:23px; border-radius:50%; background:#e7f1e7; color:#2c6a48; font-weight:800; }
+    .callout { margin-top:12px; padding:11px; border-left:3px solid #d5a74a; border-radius:7px; background:#fbf6e8; color:#766746; font-size:.73rem; line-height:1.5; }
+    .fineprint { margin:14px 0 0; color:#818c82; font-size:.69rem; line-height:1.55; }
+    .history { display:grid; gap:8px; margin-top:12px; }
+    .history-row { display:flex; justify-content:space-between; gap:10px; padding:9px 10px; border-radius:8px; background:#f3f6f2; font-size:.74rem; }
+    .history-row span { color:#708071; }
+    [hidden] { display:none !important; }
+    @media(max-width:850px) { .layout { grid-template-columns:1fr; } }
+    @media(max-width:560px) { .page { padding:19px 12px 40px; } .actions { flex-direction:column; } .controls { grid-template-columns:1fr 1fr; } .stage { min-height:260px; } }
+    @media print {
+      body { background:#fff; }
+      .page { width:100%; padding:0; }
+      .no-print { display:none !important; }
+      .layout { display:block; }
+      .card { margin:0 0 12px !important; box-shadow:none; break-inside:avoid; }
+      .stage { min-height:0; border:0; background:#fff; }
+      #photo-canvas { max-height:360px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">⌂</span> Room Area Lens</div>
+      <div class="actions no-print">
+        <button class="button" id="reset-button" type="button">Start over</button>
+        <button class="button primary" id="print-button" type="button">Print report</button>
+      </div>
+    </header>
+    <h1>Measure room <span>space.</span></h1>
+    <p class="intro">Use a photo to trace the visible floor, calibrate the perspective with two known floor edges, and get an approximate area. No photo is uploaded.</p>
+
+    <div class="layout">
+      <section>
+        <article class="card">
+          <div class="head">
+            <div><h2>Floor photo and tracing</h2><p class="muted">A wide view of the whole floor works best. For a useful estimate, the photo must show the floor corners and you need two measured floor edges.</p></div>
+          </div>
+          <div class="toolbar no-print">
+            <label class="button primary" for="photo-file">Choose room photo</label>
+            <input id="photo-file" type="file" accept="image/*" capture="environment">
+            <button class="button" id="undo-button" type="button" disabled>Undo point</button>
+            <button class="button" id="clear-points" type="button" disabled>Clear points</button>
+          </div>
+          <div class="stage">
+            <div class="placeholder" id="placeholder"><strong>📐 Add a room photo to begin</strong>Then mark the four floor-plane corners and trace the floor area.</div>
+            <canvas id="photo-canvas" hidden aria-label="Room photo. Click four floor corners to calibrate, then trace the area to measure."></canvas>
+          </div>
+          <div class="modebar no-print" role="group" aria-label="Photo marking step">
+            <button class="active" type="button" data-mode="calibrate">1 · Mark floor corners</button>
+            <button type="button" data-mode="trace">2 · Trace floor boundary</button>
+          </div>
+          <div class="controls">
+            <div class="field"><label for="width-input">Measured floor width</label><input id="width-input" type="number" min="0.01" step="any" placeholder="Measure with tape" aria-label="Known floor width"></div>
+            <div class="field"><label for="length-input">Measured floor length</label><input id="length-input" type="number" min="0.01" step="any" placeholder="Measure with tape" aria-label="Known floor length"></div>
+            <div class="field"><label for="unit-select">Measurement unit</label><select id="unit-select"><option value="m">Meters</option><option value="ft">Feet</option></select></div>
+          </div>
+          <div class="toolbar no-print" style="margin-top:11px">
+            <button class="button primary" id="estimate-rectangle" type="button" disabled>Calculate width × length</button>
+            <span class="muted">For a rectangular room, use measured dimensions; tracing is optional.</span>
+          </div>
+          <p class="status" id="status" role="status" aria-live="polite">Choose a photo first. Mark floor corners clockwise: near-left, near-right, far-right, far-left.</p>
+        </article>
+        <article class="card">
+          <div class="head"><div><h2>Area estimate</h2><p class="muted">Calculate a rectangle from measured width × length, or trace an irregular floor after calibration.</p></div></div>
+          <div class="result">
+            <div class="result-item"><strong id="area-primary">—</strong><span>Estimated floor area</span></div>
+            <div class="result-item"><strong id="area-secondary">—</strong><span>Equivalent in other unit</span></div>
+            <div class="result-item"><strong id="perimeter">—</strong><span>Estimated perimeter</span></div>
+            <div class="result-item"><strong id="polygon-points">0</strong><span>Boundary points</span></div>
+          </div>
+          <p class="fineprint">The area is calculated by rectifying the marked floor plane to the known width and length, then measuring the traced polygon in that plane. It is an estimate; blocked edges, uneven floors, lens distortion, inaccurate corner placement, or non-rectangular calibration can affect it.</p>
+        </article>
+      </section>
+
+      <section>
+        <article class="card">
+          <div class="head"><div><h2>How to measure</h2><p class="muted">The more accurate your reference measurements and corner marks, the better the estimate.</p></div></div>
+          <ol class="steps">
+            <li>Take a wide photo from a doorway or elevated spot. Include the visible floor corners and avoid strong wide-angle distortion.</li>
+            <li>Choose <b>Mark floor corners</b>, then tap the four corners of the floor area clockwise, starting near-left.</li>
+            <li>Measure two adjacent floor edges with a tape measure. Enter width and length in the selected unit.</li>
+            <li>Choose <b>Trace floor boundary</b> and tap around the room’s visible floor perimeter. Close the shape to see the estimate.</li>
+          </ol>
+          <div class="callout"><b>Important:</b> a single photo cannot reliably measure a room by itself. This tool needs real measurements to calibrate perspective; if you cannot see a floor edge, ordinary side-on photos may give a poor estimate.</div>
+        </article>
+        <article class="card">
+          <div class="head"><div><h2>Recent estimates</h2><p class="muted">Kept on this device only.</p></div><button class="button no-print" id="clear-history" type="button">Clear</button></div>
+          <div class="history" id="history"><div class="muted">No saved estimates yet.</div></div>
+          <div class="toolbar no-print"><button class="button primary" id="save-button" type="button" disabled>Save estimate</button></div>
+        </article>
+      </section>
+    </div>
+    <p class="fineprint">This app estimates two-dimensional floor area; it does not calculate wall area, ceiling height, or construction-grade measurements.</p>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const canvas = $("photo-canvas");
+    const ctx = canvas.getContext("2d");
+    const state = { image:null, imageUrl:"", scale:1, offsetX:0, offsetY:0, imageWidth:0, imageHeight:0, mode:"calibrate", corners:[], boundary:[], closed:false, resultMode:null, matrix:null, area:null, perimeter:null };
+    const historyKey = "room-area-lens-history-v1";
+    const closeDistance = 13;
+
+    function unitName() { return $("unit-select").value === "m" ? "m" : "ft"; }
+    function setStatus(message, error = false) {
+      $("status").textContent = message;
+      $("status").classList.toggle("error", error);
+    }
+    function validDimensions() {
+      const width = Number($("width-input").value);
+      const length = Number($("length-input").value);
+      return Number.isFinite(width) && width > 0 && Number.isFinite(length) && length > 0;
+    }
+    function setMode(mode) {
+      state.mode = mode;
+      document.querySelectorAll(".modebar button").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
+      if (mode === "calibrate") setStatus("Mark four floor corners clockwise: near-left, near-right, far-right, far-left.");
+      else if (state.corners.length < 4) setStatus("Mark all four floor corners before tracing.", true);
+      else setStatus("Tap around the visible floor boundary. Tap near your first point to close the shape.");
+      draw();
+    }
+    function resizeCanvas() {
+      if (!state.image) return;
+      const maxWidth = Math.max(280, Math.min(900, canvas.parentElement.clientWidth - 2));
+      const maxHeight = Math.min(window.innerHeight * .65, 620);
+      state.scale = Math.min(maxWidth / state.imageWidth, maxHeight / state.imageHeight, 1);
+      canvas.width = Math.round(state.imageWidth * state.scale);
+      canvas.height = Math.round(state.imageHeight * state.scale);
+      canvas.style.width = canvas.width + "px";
+      canvas.style.height = canvas.height + "px";
+      draw();
+    }
+    function draw() {
+      if (!state.image) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(state.image, 0, 0, canvas.width, canvas.height);
+      if (state.corners.length) drawPoints(state.corners, "#f3a43b", true, state.corners.length === 4);
+      if (state.boundary.length) drawPoints(state.boundary, "#33d1a0", true, state.area !== null);
+      if (state.corners.length === 4 && state.boundary.length === 0) {
+        ctx.beginPath();
+        state.corners.forEach((point, index) => {
+          const x = point.x * state.scale, y = point.y * state.scale;
+          if (!index) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+        ctx.setLineDash([6, 5]);
+        ctx.strokeStyle = "#ffca62";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    function drawPoints(points, color, line, closed) {
+      if (line && points.length > 1) {
+        ctx.beginPath();
+        points.forEach((point, index) => {
+          const x = point.x * state.scale, y = point.y * state.scale;
+          if (!index) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        if (closed) ctx.closePath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        if (closed && points === state.boundary) {
+          ctx.fillStyle = "#24c88d33";
+          ctx.fill();
+        }
+      }
+      points.forEach((point, index) => {
+        const x = point.x * state.scale, y = point.y * state.scale;
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#fff";
+        ctx.stroke();
+        if (points === state.corners) {
+          ctx.fillStyle = "#fff";
+          ctx.font = "bold 11px system-ui";
+          ctx.fillText(String(index + 1), x + 7, y - 7);
+        }
+      });
+    }
+    function canvasPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: Math.max(0, Math.min(state.imageWidth, (event.clientX - rect.left) / state.scale)),
+        y: Math.max(0, Math.min(state.imageHeight, (event.clientY - rect.top) / state.scale))
+      };
+    }
+    function solve(matrix, vector) {
+      const rows = matrix.map((row, index) => [...row, vector[index]]);
+      for (let col = 0; col < rows.length; col++) {
+        let pivot = col;
+        for (let row = col + 1; row < rows.length; row++) if (Math.abs(rows[row][col]) > Math.abs(rows[pivot][col])) pivot = row;
+        if (Math.abs(rows[pivot][col]) < 1e-10) throw new Error("Those four floor corners are too close or form an unstable shape. Please choose clearer corners.");
+        [rows[col], rows[pivot]] = [rows[pivot], rows[col]];
+        const divisor = rows[col][col];
+        for (let k = col; k <= rows.length; k++) rows[col][k] /= divisor;
+        for (let row = 0; row < rows.length; row++) {
+          if (row === col) continue;
+          const factor = rows[row][col];
+          for (let k = col; k <= rows.length; k++) rows[row][k] -= factor * rows[col][k];
+        }
+      }
+      return rows.map((row) => row[rows.length]);
+    }
+    function calibrationMatrix() {
+      const width = Number($("width-input").value);
+      const length = Number($("length-input").value);
+      if (!Number.isFinite(width) || !Number.isFinite(length) || width <= 0 || length <= 0) throw new Error("Enter positive known width and length measurements.");
+      const destinations = [[0,0],[width,0],[width,length],[0,length]];
+      const matrix = [], vector = [];
+      state.corners.forEach((point, index) => {
+        const x = point.x, y = point.y;
+        const [u,v] = destinations[index];
+        matrix.push([x,y,1,0,0,0,-u*x,-u*y]); vector.push(u);
+        matrix.push([0,0,0,x,y,1,-v*x,-v*y]); vector.push(v);
+      });
+      return solve(matrix, vector);
+    }
+    function transform(point, h) {
+      const denominator = h[6] * point.x + h[7] * point.y + 1;
+      if (Math.abs(denominator) < 1e-10) throw new Error("The calibration shape is unstable; adjust the corner markers.");
+      return { x:(h[0]*point.x + h[1]*point.y + h[2])/denominator, y:(h[3]*point.x + h[4]*point.y + h[5])/denominator };
+    }
+    function calculate() {
+      $("save-button").disabled = true;
+      $("estimate-rectangle").disabled = !state.image || !validDimensions();
+      if (state.resultMode === "rectangle") {
+        try {
+          if (!validDimensions()) throw new Error("Enter the two measured floor edges first.");
+          const width = Number($("width-input").value);
+          const length = Number($("length-input").value);
+          const area = width * length;
+          const otherArea = $("unit-select").value === "m" ? area * 10.7639104167 : area / 10.7639104167;
+          $("area-primary").textContent = new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(area) + " " + unitName() + "²";
+          $("area-secondary").textContent = new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(otherArea) + " " + ($("unit-select").value === "m" ? "ft²" : "m²");
+          $("perimeter").textContent = new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(2 * (width + length)) + " " + unitName();
+          $("polygon-points").textContent = "Rectangle";
+          state.area = area;
+          state.perimeter = 2 * (width + length);
+          $("save-button").disabled = false;
+          setStatus("Rectangular estimate calculated from measured width × length. Photo tracing is optional.");
+          return;
+        } catch (error) {
+          state.area = null;
+          setStatus(error.message, true);
+          return;
+        }
+      }
+      if (state.corners.length !== 4) {
+        state.area = null;
+        $("area-primary").textContent = "—";
+        $("area-secondary").textContent = "—";
+        $("perimeter").textContent = "—";
+        $("polygon-points").textContent = String(state.boundary.length);
+        return;
+      }
+      try {
+        if (state.boundary.length < 3 || !state.closed) {
+          state.area = null;
+          $("area-primary").textContent = "—";
+          $("area-secondary").textContent = "—";
+          $("perimeter").textContent = "—";
+          $("polygon-points").textContent = String(state.boundary.length);
+          return;
+        }
+        state.matrix = calibrationMatrix();
+        const polygon = state.boundary.map((point) => transform(point, state.matrix));
+        let twiceArea = 0, perimeter = 0;
+        polygon.forEach((point, index) => {
+          const next = polygon[(index + 1) % polygon.length];
+          twiceArea += point.x * next.y - next.x * point.y;
+          perimeter += Math.hypot(next.x - point.x, next.y - point.y);
+        });
+        const areaM2 = Math.abs(twiceArea) / 2;
+        const currentUnit = unitName();
+        const displayArea = currentUnit === "m" ? areaM2 : areaM2 * 10.7639104167;
+        const otherArea = currentUnit === "m" ? displayArea * 10.7639104167 : areaM2;
+        const displayPerimeter = currentUnit === "m" ? perimeter : perimeter * 3.280839895;
+        state.area = displayArea;
+        state.perimeter = displayPerimeter;
+        state.resultMode = "trace";
+        $("area-primary").textContent = new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(displayArea) + " " + currentUnit + "²";
+        $("area-secondary").textContent = new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(otherArea) + " " + (currentUnit === "m" ? "ft²" : "m²");
+        $("perimeter").textContent = new Intl.NumberFormat(undefined,{maximumFractionDigits:2}).format(displayPerimeter) + " " + currentUnit;
+        $("polygon-points").textContent = String(state.boundary.length);
+        $("save-button").disabled = false;
+        setStatus("Estimated area calculated. Check the overlay against the actual floor boundary.");
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+    function updateUndo() {
+      $("undo-button").disabled = state.mode === "calibrate" ? state.corners.length === 0 : state.boundary.length === 0;
+      $("clear-points").disabled = state.corners.length === 0 && state.boundary.length === 0;
+    }
+    function addPoint(point) {
+      if (state.mode === "calibrate") {
+        if (state.corners.length >= 4) {
+          setStatus("All four corners are marked. Choose Trace floor boundary, or clear points to start again.", true);
+          return;
+        }
+        state.corners.push(point);
+        if (state.corners.length === 4) {
+          setStatus("Corners 4/4 marked. Enter the measured width and length, then estimate the rectangle or trace an irregular floor.");
+        } else {
+          setStatus("Floor corners " + state.corners.length + "/4 marked. Continue clockwise, starting near-left.");
+        }
+      } else {
+        if (state.corners.length < 4) {
+          setStatus("Mark four floor corners before tracing.", true);
+          return;
+        }
+        if (state.closed) {
+          setStatus("The boundary is closed. Undo or clear points before changing the trace.", true);
+          return;
+        }
+        if (state.boundary.length >= 3 && Math.hypot(point.x - state.boundary[0].x, point.y - state.boundary[0].y) * state.scale < closeDistance) {
+          state.closed = true;
+          calculate();
+          draw();
+          updateUndo();
+          return;
+        }
+        state.boundary.push(point);
+        state.closed = false;
+        state.resultMode = null;
+        setStatus(state.boundary.length < 3 ? "Add at least three boundary points. Tap the first point to close." : "Boundary point added. Tap near the first point to close and calculate.");
+      }
+      calculate();
+      draw();
+      updateUndo();
+    }
+    function readHistory() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(historyKey) || "[]");
+        return Array.isArray(parsed) ? parsed.filter((item) => item && Number.isFinite(item.area) && typeof item.unit === "string") : [];
+      } catch { return []; }
+    }
+    function renderHistory() {
+      const container = $("history");
+      container.replaceChildren();
+      const entries = readHistory().slice(0,6);
+      if (!entries.length) {
+        const message = document.createElement("div");
+        message.className = "muted";
+        message.textContent = "No saved estimates yet.";
+        container.appendChild(message);
+        return;
+      }
+      entries.forEach((entry) => {
+        const row = document.createElement("div");
+        row.className = "history-row";
+        const title = document.createElement("strong");
+        title.textContent = entry.label || "Room estimate";
+        const value = document.createElement("span");
+        value.textContent = entry.area.toFixed(2) + " " + entry.unit + "²";
+        const when = document.createElement("span");
+        when.textContent = new Intl.DateTimeFormat(undefined,{month:"short",day:"numeric"}).format(new Date(entry.date));
+        row.append(title,value,when);
+        container.appendChild(row);
+      });
+    }
+    function saveEstimate() {
+      if (!Number.isFinite(state.area)) return;
+      const entries = readHistory();
+      entries.unshift({ label:"Room estimate", area:state.area, unit:unitName(), date:new Date().toISOString() });
+      try {
+        localStorage.setItem(historyKey,JSON.stringify(entries.slice(0,30)));
+        renderHistory();
+        setStatus("Estimate saved in this browser.");
+      } catch {
+        setStatus("Could not save this estimate in browser storage.",true);
+      }
+    }
+    function reset() {
+      if (state.imageUrl) URL.revokeObjectURL(state.imageUrl);
+      state.image = null; state.imageUrl = ""; state.corners = []; state.boundary = []; state.closed = false; state.resultMode = null; state.matrix = null; state.area = null; state.perimeter = null;
+      canvas.hidden = true;
+      $("placeholder").hidden = false;
+      $("photo-file").value = "";
+      $("area-primary").textContent = "—";
+      $("area-secondary").textContent = "—";
+      $("perimeter").textContent = "—";
+      $("polygon-points").textContent = "0";
+      $("save-button").disabled = true;
+      $("estimate-rectangle").disabled = true;
+      setMode("calibrate");
+      setStatus("Choose a photo first. Mark floor corners clockwise: near-left, near-right, far-right, far-left.");
+      updateUndo();
+    }
+    $("photo-file").addEventListener("change", () => {
+      const file = $("photo-file").files[0];
+      if (!file || !file.type.startsWith("image/")) { setStatus("Choose a valid image file.",true); return; }
+      if (state.imageUrl) URL.revokeObjectURL(state.imageUrl);
+      state.imageUrl = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => {
+        state.image = image; state.imageWidth = image.naturalWidth; state.imageHeight = image.naturalHeight;
+        state.corners = []; state.boundary = []; state.closed = false; state.resultMode = null; state.area = null;
+        $("placeholder").hidden = true; canvas.hidden = false;
+        resizeCanvas(); updateUndo(); calculate();
+        setStatus("Mark floor corners clockwise: near-left, near-right, far-right, far-left.");
+      };
+      image.onerror = () => setStatus("Could not load this image. Choose a different photo.",true);
+      image.src = state.imageUrl;
+    });
+    canvas.addEventListener("click", (event) => {
+      if (!state.image) return;
+      addPoint(canvasPoint(event));
+    });
+    document.querySelectorAll(".modebar button").forEach((button) => button.addEventListener("click", () => setMode(button.dataset.mode)));
+    $("undo-button").addEventListener("click", () => {
+      if (state.mode === "calibrate") {
+        state.corners.pop();
+      } else {
+        state.boundary.pop();
+        state.closed = false;
+      }
+      state.area = null; calculate(); draw(); updateUndo();
+      setStatus(state.mode === "calibrate" ? "Last floor corner removed." : "Last boundary point removed.");
+    });
+    $("clear-points").addEventListener("click", () => {
+      state.corners = []; state.boundary = []; state.closed = false; state.resultMode = null; state.area = null; calculate(); draw(); updateUndo();
+      setMode("calibrate");
+      setStatus("All marked points cleared. Mark the four floor corners clockwise.");
+    });
+    ["width-input","length-input"].forEach((id) => $(id).addEventListener("input", () => {
+      if (state.resultMode === "rectangle") calculate();
+      else $("estimate-rectangle").disabled = !state.image || !validDimensions();
+    }));
+    $("unit-select").addEventListener("change", (event) => {
+      const factor = event.target.value === "ft" ? 3.280839895 : 1 / 3.280839895;
+      ["width-input","length-input"].forEach((id) => {
+        const value = Number($(id).value);
+        if (Number.isFinite(value) && value > 0) $(id).value = String(Number((value * factor).toFixed(4)));
+      });
+      calculate();
+      if (state.area === null) draw();
+    });
+    $("estimate-rectangle").addEventListener("click", () => {
+      if (!state.image || !validDimensions()) {
+        setStatus("Add a photo and enter the measured room width and length.",true);
+        return;
+      }
+      state.resultMode = "rectangle";
+      calculate();
+    });
+    $("save-button").addEventListener("click", saveEstimate);
+    $("clear-history").addEventListener("click", () => {
+      try { localStorage.removeItem(historyKey); renderHistory(); setStatus("Saved estimates cleared."); }
+      catch { setStatus("Could not clear browser storage.",true); }
+    });
+    $("reset-button").addEventListener("click", reset);
+    $("print-button").addEventListener("click", () => window.print());
+    window.addEventListener("resize", resizeCanvas);
+    renderHistory();
+    updateUndo();
+  </script>
+</body>
+</html>
